@@ -1,0 +1,205 @@
+import sqlite3
+import os
+
+# Connect or create DB
+conn = sqlite3.connect("inventory.db")
+cursor = conn.cursor()
+
+# Create tables
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE,
+    password TEXT,
+    role TEXT CHECK(role IN ('admin', 'user'))
+)
+''')
+
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS products (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    quantity INTEGER NOT NULL,
+    price REAL NOT NULL
+)
+''')
+
+cursor.execute('''
+CREATE TABLE IF NOT EXISTS transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER,
+    quantity INTEGER,
+    type TEXT CHECK(type IN ('purchase', 'sale')),
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(product_id) REFERENCES products(id)
+)
+''')
+
+# Insert default admin
+cursor.execute("SELECT * FROM users WHERE username = 'abcd'")
+if not cursor.fetchone():
+    cursor.execute("INSERT INTO users (username, password, role) VALUES ('abcd', '1234', 'admin')")
+    conn.commit()
+def login():
+    username = input("Enter username: ")
+    password = input("Enter password: ")
+    cursor.execute("SELECT * FROM users WHERE username=? AND password=?", (username, password))
+    user = cursor.fetchone()
+    if user:
+        print(f"\nWelcome {username} ({user[3]})")
+        return user
+    else:
+        print("\nInvalid credentials!")
+        return None
+
+SPECIAL_ADMIN_PASSKEY = "adminpass123"  # Set this to your secure admin passkey
+
+def register():
+    username = input("Choose username: ")
+    password = input("Choose password: ")
+    role = input("Choose role (admin/user): ").lower()
+    if role == "admin":
+        passkey = input("Enter admin passkey: ")
+        if passkey != SPECIAL_ADMIN_PASSKEY:
+            print("Invalid admin passkey! Registration failed.")
+            return
+    try:
+        cursor.execute("INSERT INTO users (username, password, role) VALUES (?, ?, ?)", (username, password, role))
+        conn.commit()
+        print("\nUser registered successfully!")
+    except:
+        print("\nUsername already exists!")
+def add_product():
+    name = input("Product name: ")
+    quantity = int(input("Initial quantity: "))
+    price = float(input("Price: "))
+    cursor.execute("INSERT INTO products (name, quantity, price) VALUES (?, ?, ?)", (name, quantity, price))
+    conn.commit()
+    print("Product added!")
+
+def view_inventory():
+    cursor.execute("SELECT * FROM products")
+    rows = cursor.fetchall()
+    print("\nInventory:")
+    for r in rows:
+        print(f"ID: {r[0]}, Name: {r[1]}, Qty: {r[2]}, Price: ₹{r[3]:.2f}")
+
+def update_stock(product_id, quantity, trans_type):
+    cursor.execute("SELECT quantity FROM products WHERE id=?", (product_id,))
+    row = cursor.fetchone()
+    if not row:
+        print("Product not found!")
+        return
+
+    current_qty = row[0]
+
+    if trans_type == "purchase":
+        # Decrease stock when customer purchases
+        if current_qty < quantity:
+            print("Not enough stock!")
+            return
+        new_qty = current_qty - quantity
+    elif trans_type == "sale":
+        # Increase stock when restocking
+        new_qty = current_qty + quantity
+    else:
+        print("Invalid transaction type!")
+        return
+
+    cursor.execute("UPDATE products SET quantity=? WHERE id=?", (new_qty, product_id))
+    cursor.execute("INSERT INTO transactions (product_id, quantity, type) VALUES (?, ?, ?)", (product_id, quantity, trans_type))
+    conn.commit()
+    print(f"{trans_type.capitalize()} completed! New quantity: {new_qty}")
+
+def view_transactions():
+    cursor.execute('''
+        SELECT t.id, p.name, t.quantity, t.type, t.timestamp
+        FROM transactions t JOIN products p ON t.product_id = p.id
+        ORDER BY t.timestamp DESC
+    ''')
+    transactions = cursor.fetchall()
+    print("\nTransaction History:")
+    for t in transactions:
+        print(f"ID: {t[0]}, Product: {t[1]}, Qty: {t[2]}, Type: {t[3]}, Time: {t[4]}")
+
+# Main menu without zero
+def main_menu(role):
+    while True:
+        print("\n1. View Inventory")
+        print("2. Purchase Stock")
+        print("3. Sell Product")
+        if role == "admin":
+            print("4. Add Product")
+            print("5. View Transactions")
+            print("6. Register User/Admin")
+            print("7. Logout")
+        else:
+            print("4. Register User")
+            print("5. Logout")
+
+        choice = input("Choose an option: ")
+
+        if choice == '1':
+            view_inventory()
+        elif choice == '2':
+            view_inventory()
+            pid = int(input("Enter Product ID to purchase: "))
+            qty = int(input("Enter quantity to purchase: "))
+            update_stock(pid, qty, "purchase")
+        elif choice == '3':
+            view_inventory()
+            pid = int(input("Enter Product ID to sell: "))
+            qty = int(input("Enter quantity to sell: "))
+            update_stock(pid, qty, "sale")
+        elif role == "admin" and choice == '4':
+            add_product()
+        elif role == "admin" and choice == '5':
+            view_transactions()
+        elif role == "admin" and choice == '6':
+            register()
+        elif role != "admin" and choice == '4':
+            register()
+        elif (role == "admin" and choice == '7') or (role != "admin" and choice == '5'):
+            print("Logging out...")
+            break
+        else:
+            print("Invalid choice.")
+# Starting menu without zero
+def starting_menu():
+    while True:
+        print("\n=== Inventory System ===")
+        print("1. Login")
+        print("2. Register")
+        print("3. Exit")
+        option = input("Choose option: ")
+
+        if option == '1':
+            user = login()
+            if user:
+                main_menu(user[3])
+        elif option == '2':
+            register()
+        elif option == '3':
+            print("Exiting...")
+            break
+        else:
+            print("Invalid option!")
+
+while True:
+    print("\n=== Inventory System ===")
+    print("1. Login")
+    print("2. Register")
+    print("3. Exit")
+    option = input("Choose option: ")
+
+    if option == '1':
+        user = login()
+        if user:
+            main_menu(user[3])
+    elif option == '2':
+        register()
+    elif option == '3':
+        print("Exiting...")
+        break
+    else:
+        print("Invalid option!")
